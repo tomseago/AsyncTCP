@@ -29,12 +29,17 @@ extern "C"{
 #include "lwip/dns.h"
 }
 
+extern "C" {
+    #include "freertos/portmacro.h"
+}
+
 #if CONFIG_FREERTOS_UNICORE
 #define ASYNCTCP_RUNNING_CORE 0
 #else
 #define ASYNCTCP_RUNNING_CORE 1
 #endif
 
+static portMUX_TYPE evtMux = portMUX_INITIALIZER_UNLOCKED;
 /*
  * TCP/IP Event Task
  * */
@@ -91,15 +96,22 @@ static inline bool _init_async_event_queue(){
 }
 
 static inline bool _send_async_event(lwip_event_packet_t ** e){
-    return _async_queue && xQueueSend(_async_queue, e, portMAX_DELAY) == pdPASS;
+//vTaskEnterCritical(&evtMux);    
+    bool r = _async_queue && xQueueSend(_async_queue, e, portMAX_DELAY) == pdPASS;
+//vTaskExitCritical(&evtMux);
+    return r;
 }
 
 static inline bool _prepend_async_event(lwip_event_packet_t ** e){
-    return _async_queue && xQueueSendToFront(_async_queue, e, portMAX_DELAY) == pdPASS;
+//vTaskEnterCritical(&evtMux);
+    bool r = _async_queue && xQueueSendToFront(_async_queue, e, portMAX_DELAY) == pdPASS;
+//vTaskExitCritical(&evtMux);
+    return r;
 }
 
 static inline bool _get_async_event(lwip_event_packet_t ** e){
-    return _async_queue && xQueueReceive(_async_queue, e, portMAX_DELAY) == pdPASS;
+    bool r = _async_queue && xQueueReceive(_async_queue, e, portMAX_DELAY) == pdPASS;
+    return r;
 }
 
 static bool _remove_events_with_arg(void * arg){
@@ -162,7 +174,9 @@ static void _async_service_task(void *pvParameters){
     lwip_event_packet_t * packet = NULL;
     for (;;) {
         if(_get_async_event(&packet)){
+vTaskEnterCritical(&evtMux);
             _handle_async_event(packet);
+vTaskExitCritical(&evtMux);
         }
     }
     vTaskDelete(NULL);
@@ -177,6 +191,7 @@ static void _stop_async_task(){
 }
 */
 static bool _start_async_task(){
+vPortCPUInitializeMutex(&evtMux);
     if(!_init_async_event_queue()){
         return false;
     }
